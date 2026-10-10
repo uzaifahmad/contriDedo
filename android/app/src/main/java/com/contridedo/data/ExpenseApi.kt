@@ -6,6 +6,7 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 
@@ -28,6 +29,8 @@ interface ExpenseApi {
     suspend fun createExpense(
         @Path("tripId") tripId: Long,
         @Body payload: ExpenseCreatePayload,
+        // Reusing a key on retry lets the server de-duplicate the request; null omits the header.
+        @Header("X-Idempotency-Key") idempotencyKey: String?,
     ): Response<ResponseBody>
 
     companion object {

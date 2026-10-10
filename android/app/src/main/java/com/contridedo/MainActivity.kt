@@ -16,11 +16,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import com.contridedo.data.ExpenseApi
+import com.contridedo.data.ExpenseCreatePayload
 import com.contridedo.ui.AddExpenseScreen
 import com.contridedo.ui.ContriDedoTheme
 import com.contridedo.ui.ExpenseParticipant
 import com.contridedo.ui.TripCardData
 import com.contridedo.ui.TripListScreen
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private val tripMembers = listOf(
@@ -47,6 +50,9 @@ class MainActivity : ComponentActivity() {
                 val api = remember { ExpenseApi.create(BuildConfig.API_BASE_URL) }
                 var selectedTrip by remember { mutableStateOf(tripSamples.first()) }
                 var showAddExpense by remember { mutableStateOf(false) }
+                var savingExpense by remember { mutableStateOf(false) }
+                // One key per payload so a retry after a failure cannot create a duplicate expense.
+                var lastAttempt by remember { mutableStateOf<Pair<ExpenseCreatePayload, String>?>(null) }
 
                 Box(Modifier.fillMaxSize()) {
                     if (showAddExpense) {
@@ -56,17 +62,28 @@ class MainActivity : ComponentActivity() {
                             members = tripMembers,
                             onBack = { showAddExpense = false },
                             onSaveExpense = { tripId, payload ->
-                                scope.launch {
-                                    try {
-                                        val response = api.createExpense(tripId, payload)
-                                        if (response.isSuccessful) {
-                                            showAddExpense = false
-                                            snackbarHostState.showSnackbar("Expense added to ${selectedTrip.title}.")
-                                        } else {
-                                            snackbarHostState.showSnackbar("Could not save expense (${response.code()}).")
+                                if (!savingExpense) {
+                                    savingExpense = true
+                                    val key = lastAttempt?.takeIf { it.first == payload }?.second
+                                        ?: UUID.randomUUID().toString()
+                                    lastAttempt = payload to key
+                                    scope.launch {
+                                        try {
+                                            val response = api.createExpense(tripId, payload, key)
+                                            if (response.isSuccessful) {
+                                                showAddExpense = false
+                                                lastAttempt = null
+                                                snackbarHostState.showSnackbar("Expense added to ${selectedTrip.title}.")
+                                            } else {
+                                                snackbarHostState.showSnackbar("Could not save expense (${response.code()}).")
+                                            }
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Exception) {
+                                            snackbarHostState.showSnackbar("Could not reach the contriDedo API.")
+                                        } finally {
+                                            savingExpense = false
                                         }
-                                    } catch (_: Exception) {
-                                        snackbarHostState.showSnackbar("Could not reach the contriDedo API.")
                                     }
                                 }
                             },
