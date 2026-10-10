@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val configuredApiBaseUrl = providers.gradleProperty("apiBaseUrl")
+    .orElse("http://10.0.2.2:8000/")
+    .get()
+    .let { if (it.endsWith("/")) it else "$it/" }
+
 android {
     namespace = "com.contridedo"
     compileSdk = 36
@@ -13,7 +18,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000/\"")
+        buildConfigField("String", "API_BASE_URL", "\"$configuredApiBaseUrl\"")
     }
 
     buildFeatures {

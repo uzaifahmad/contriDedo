@@ -31,7 +31,18 @@ The trip ID is supplied in the URL, not duplicated in the JSON body. Amounts are
 }
 ```
 
-`payer_id` and each `user_id` are PostgreSQL `BIGINT` IDs represented as JSON integers. `calculation_method` is one of `equal`, `percentage`, or `exact`. Equal splits allocate integer cents in participant order, assigning any remainder cents to earlier participants. The API endpoint is a client contract; it still needs a backend route implementation.
+`payer_id` and each `user_id` are PostgreSQL `BIGINT` IDs represented as JSON integers. `calculation_method` is one of `equal`, `percentage`, or `exact`. Equal splits allocate integer cents in participant order, assigning any remainder cents to earlier participants. Expense requests may also include `currency` (three-letter code, defaults to `USD`) and `category` (defaults to `Other`). A percentage split may include a `percentage` decimal string on every split; when omitted, the server validates the supplied amounts sum exactly to the total.
+
+## Authentication and trips
+
+- `POST /api/auth/sign-up` accepts `email`, `password`, and optional `display_name`; `POST /api/auth/sign-in` accepts `email` and `password`. Both return a bearer `access_token` and user object.
+- `GET /api/auth/me` returns the authenticated user.
+- `GET /api/trips` lists the caller's trips. `POST /api/trips` accepts `name` and optional `destination`.
+- `GET /api/trips/{trip_id}` returns the trip, members, expenses, member count, and `total_spent_by_currency` so amounts in different currencies are never combined.
+- `POST /api/trips/{trip_id}/members` adds an existing account by email.
+- `GET /api/trips/{trip_id}/expenses` and `GET /api/trips/{trip_id}/balances` return expenses and current simplified balances, grouped by currency.
+
+Except for health and authentication routes, requests require `Authorization: Bearer <access_token>`. Trip membership is checked before returning or modifying trip data.
 
 ## Idempotency
 
