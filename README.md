@@ -21,4 +21,17 @@ Each directory owns its platform-specific source and build configuration. This r
 
 ## Getting started
 
+Run the checks for each component from the repository root:
+
+```bash
+# backend (Python 3.10+, standard library only)
+cd backend && python3 -m unittest tests.test_debt_simplifier
+
+# web
+cd web && npm ci && npm run build
+
+# android (requires the Android SDK)
+cd android && ./gradlew testDebugUnitTest
+```
+
 Choose and document the backend, web, and Android toolchains in their respective directories. Run and test each component using its local instructions. The clients require a reachable backend API; configure its base URL through local environment settings and do not commit secrets.
