@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Check, LoaderCircle, X } from "lucide-react";
-import { createTripExpense } from "../api";
+import { createTripExpense, newIdempotencyKey } from "../api";
 import { buildExpenseSplits, normalizeMoney } from "../money";
 import type { CalculationMethod, ExpenseCreatePayload, TripMember } from "../types";
 
@@ -25,6 +25,16 @@ export default function ExpenseDialog({
   const [splitValues, setSplitValues] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  // One key per distinct payload: a retry after a failure reuses it, an edited expense gets a new one.
+  const attempt = useRef<{ body: string; key: string } | null>(null);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !saving) onClose();
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, saving]);
 
   let preview: ReturnType<typeof buildExpenseSplits> = [];
   let previewError = "";
@@ -57,7 +67,11 @@ export default function ExpenseDialog({
         payer_id: payerId,
         splits: buildExpenseSplits(amount, participantIds, splitMethod, splitValues),
       };
-      await createTripExpense(tripId, payload);
+      const body = JSON.stringify(payload);
+      if (attempt.current?.body !== body) {
+        attempt.current = { body, key: newIdempotencyKey() };
+      }
+      await createTripExpense(tripId, payload, { idempotencyKey: attempt.current.key });
       onSaved(payload);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save this expense.");

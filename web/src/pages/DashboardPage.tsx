@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -44,6 +44,11 @@ export default function DashboardPage() {
   const [totalSpent, setTotalSpent] = useState(currentTrip.totalSpent);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [notice, setNotice] = useState("");
+  const noticeTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
+
+  const closeExpenseForm = useCallback(() => setShowExpenseForm(false), []);
 
   function handleSaved(payload: ExpenseCreatePayload) {
     const newExpense: ExpenseItem = {
@@ -58,7 +63,8 @@ export default function DashboardPage() {
     setTotalSpent((previous) => addMoney(previous, payload.total_amount));
     setShowExpenseForm(false);
     setNotice("Expense added to the trip.");
-    window.setTimeout(() => setNotice(""), 3200);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(""), 3200);
   }
 
   return (
@@ -190,7 +196,7 @@ export default function DashboardPage() {
       {showExpenseForm && (
         <ExpenseDialog
           members={tripMembers}
-          onClose={() => setShowExpenseForm(false)}
+          onClose={closeExpenseForm}
           onSaved={handleSaved}
           tripId={currentTrip.id}
         />
