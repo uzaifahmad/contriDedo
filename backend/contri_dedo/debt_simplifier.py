@@ -1,7 +1,8 @@
 """Exact-money helpers for allocating and simplifying trip debts."""
 
+import heapq
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Union
@@ -75,25 +76,18 @@ def simplify_debts(
         net_cents[transaction.debtor_id] -= amount_cents
         net_cents[transaction.creditor_id] += amount_cents
 
-    simplified: list[DebtTransaction] = []
-    while True:
-        debtors = [
-            (user_id, balance)
-            for user_id, balance in net_cents.items()
-            if balance < 0
-        ]
-        creditors = [
-            (user_id, balance)
-            for user_id, balance in net_cents.items()
-            if balance > 0
-        ]
-        if not debtors:
-            break
+    # Max-heaps (via negated amounts). Ties break on the lowest user id so the
+    # output is deterministic and identical to the previous O(n^2) selection.
+    debtors = [(balance, user_id) for user_id, balance in net_cents.items() if balance < 0]
+    creditors = [(-balance, user_id) for user_id, balance in net_cents.items() if balance > 0]
+    heapq.heapify(debtors)
+    heapq.heapify(creditors)
 
-        debtor_id, debt_cents = min(debtors, key=lambda item: (item[1], item[0]))
-        creditor_id, credit_cents = min(
-            creditors, key=lambda item: (-item[1], item[0])
-        )
+    simplified: list[DebtTransaction] = []
+    while debtors and creditors:
+        debt_cents, debtor_id = heapq.heappop(debtors)  # most negative first
+        negative_credit_cents, creditor_id = heapq.heappop(creditors)
+        credit_cents = -negative_credit_cents
         payment_cents = min(-debt_cents, credit_cents)
 
         simplified.append(
@@ -103,7 +97,87 @@ def simplify_debts(
                 amount=_from_cents(payment_cents),
             )
         )
-        net_cents[debtor_id] += payment_cents
-        net_cents[creditor_id] -= payment_cents
+        if debt_cents + payment_cents < 0:
+            heapq.heappush(debtors, (debt_cents + payment_cents, debtor_id))
+        if credit_cents - payment_cents > 0:
+            heapq.heappush(creditors, (-(credit_cents - payment_cents), creditor_id))
 
     return simplified
+
+
+def split_by_percentage(
+    total_amount: MoneyAmount,
+    percentages: Sequence[tuple[int, MoneyAmount]],
+) -> dict[int, Decimal]:
+    """Split by percentages (max two decimals) that must add up to exactly 100.
+
+    Shares are floored to the cent, then leftover cents go to the participants with
+    the largest fractional remainders (ties: earlier participant first). This is the
+    same rule the web and Android clients use.
+    """
+    total_cents = _to_cents(total_amount)
+    if total_cents < 0:
+        raise ValueError("total_amount cannot be negative")
+    if not percentages:
+        raise ValueError("at least one participant is required")
+    user_ids = [user_id for user_id, _ in percentages]
+    if len(set(user_ids)) != len(user_ids):
+        raise ValueError("participant_ids must be unique")
+
+    basis_points = [_to_cents(percent) for _, percent in percentages]  # hundredths of a percent
+    if any(points < 0 or points > 10_000 for points in basis_points):
+        raise ValueError("percentages must be between 0 and 100")
+    if sum(basis_points) != 10_000:
+        raise ValueError("percentages must add up to 100")
+
+    floors = [total_cents * points // 10_000 for points in basis_points]
+    remainders = [total_cents * points % 10_000 for points in basis_points]
+    leftover = total_cents - sum(floors)
+    recipients = sorted(range(len(user_ids)), key=lambda index: (-remainders[index], index))[:leftover]
+    bonus = set(recipients)
+    return {
+        user_id: _from_cents(floors[index] + (index in bonus))
+        for index, user_id in enumerate(user_ids)
+    }
+
+
+def split_exact(
+    total_amount: MoneyAmount,
+    amounts: Sequence[tuple[int, MoneyAmount]],
+) -> dict[int, Decimal]:
+    """Validate explicit per-person amounts: unique users, none negative, sum == total."""
+    total_cents = _to_cents(total_amount)
+    if total_cents < 0:
+        raise ValueError("total_amount cannot be negative")
+    if not amounts:
+        raise ValueError("at least one participant is required")
+    user_ids = [user_id for user_id, _ in amounts]
+    if len(set(user_ids)) != len(user_ids):
+        raise ValueError("participant_ids must be unique")
+
+    share_cents = [_to_cents(amount) for _, amount in amounts]
+    if any(cents < 0 for cents in share_cents):
+        raise ValueError("shares cannot be negative")
+    if sum(share_cents) != total_cents:
+        raise ValueError("exact shares must add up to the total")
+    return {user_id: _from_cents(cents) for user_id, cents in zip(user_ids, share_cents)}
+
+
+def net_balances(
+    expenses: Iterable[tuple[int, MoneyAmount, Mapping[int, MoneyAmount]]],
+) -> dict[int, Decimal]:
+    """Net position per user from ``(payer_id, total_amount, {user_id: amount_owed})``.
+
+    Positive means the user is owed money; negative means they owe. Every expense
+    must have shares that add up to its total, so balances always sum to zero.
+    """
+    net_cents: dict[int, int] = defaultdict(int)
+    for payer_id, total_amount, shares in expenses:
+        total_cents = _to_cents(total_amount)
+        share_cents = {user_id: _to_cents(amount) for user_id, amount in shares.items()}
+        if sum(share_cents.values()) != total_cents:
+            raise ValueError("expense shares must add up to the total")
+        net_cents[payer_id] += total_cents
+        for user_id, cents in share_cents.items():
+            net_cents[user_id] -= cents
+    return {user_id: _from_cents(cents) for user_id, cents in net_cents.items()}
