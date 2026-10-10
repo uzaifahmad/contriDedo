@@ -100,7 +100,7 @@ export function buildExpenseSplits(
     const product = totalCents * share.basisPoints;
     return { ...share, cents: product / 10_000n, remainder: product % 10_000n };
   });
-  let remainder = totalCents - shares.reduce((sum, share) => sum + share.cents, 0n);
+  const remainder = totalCents - shares.reduce((sum, share) => sum + share.cents, 0n);
   const remainderRecipients = [...shares]
     .sort((left, right) => left.remainder === right.remainder
       ? left.index - right.index
@@ -109,7 +109,6 @@ export function buildExpenseSplits(
   const remainderIds = new Set(remainderRecipients.map((share) => share.userId));
   return shares.map((share) => {
     const cents = share.cents + (remainderIds.has(share.userId) ? 1n : 0n);
-    remainder -= remainderIds.has(share.userId) ? 1n : 0n;
     return {
       user_id: share.userId,
       amount_owed: centsToAmount(cents),

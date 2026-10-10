@@ -21,4 +21,31 @@ Each directory owns its platform-specific source and build configuration. This r
 
 ## Getting started
 
+## Run and test
+
+Start PostgreSQL, create a `contridedo` database, then run the backend from `backend/`:
+
+```bash
+python -m pip install -r requirements.txt
+alembic upgrade head
+uvicorn contri_dedo.api:app --reload
+```
+
+Set `DATABASE_URL` to a PostgreSQL SQLAlchemy URL when it differs from the local default. The API supports sign-up/sign-in, trip creation/list/detail, adding existing accounts to trips, expense creation/listing, and balances. API requests other than health and sign-up/sign-in require `Authorization: Bearer <token>`.
+
+Run the checks for each component from the repository root:
+
+```bash
+# backend (Python 3.10+, dependencies in backend/requirements.txt)
+cd backend && python -m unittest tests.test_debt_simplifier tests.test_api
+
+# web
+cd web && npm ci && npm run build
+
+# android (requires the Android SDK)
+cd android && ./gradlew testDebugUnitTest
+```
+
 Choose and document the backend, web, and Android toolchains in their respective directories. Run and test each component using its local instructions. The clients require a reachable backend API; configure its base URL through local environment settings and do not commit secrets.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the free-tier Render and Neon hosting setup.
